@@ -2,9 +2,8 @@
 # https://github.com/tweepy/tweepy/blob/master/examples/streaming.py
 
 from tweepy.streaming import StreamListener
-from tweepy import OAuthHandler
-from tweepy import Stream
 import json
+import tweepy
 
 consumer_key = "yD8HPKtfdHpMKVyfrYtjcJhih"
 consumer_secret = "o5ZiidfbuRt9i1tnOvAUPbjfzlvzMCzDYs9m92k80tIwc2eL4z"
@@ -41,8 +40,20 @@ class twitter_stream_listener(StreamListener):
 
 if __name__=='__main__':
     listener = twitter_stream_listener(num_tweets=20)
-    auth = OAuthHandler(consumer_key, consumer_secret)
+    auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.set_access_token(access_token, access_token_secret)
 
-    stream = Stream(auth, listener)
+    stream = tweepy.Stream(auth, listener)
     stream.filter(track=['wimbledon'])
+
+    # Search for a given query
+    twitter_api = tweepy.API(auth)
+    search_results = tweepy.Cursor(twitter_api.search, q="wimbledon").items(20)
+    for result in search_results:
+        print(result.text)
+
+    # Trends
+    trends = twitter_api.trends_place(1) #Global trends
+
+    for trend in trends[0]["trends"]:
+        print(trend['name'])
