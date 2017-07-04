@@ -5,6 +5,7 @@ from tweepy.streaming import StreamListener
 import json
 import tweepy
 from collections import Counter
+import sqlite3
 
 consumer_key = "yD8HPKtfdHpMKVyfrYtjcJhih"
 consumer_secret = "o5ZiidfbuRt9i1tnOvAUPbjfzlvzMCzDYs9m92k80tIwc2eL4z"
@@ -17,6 +18,7 @@ langs = {'ar': 'Arabic', 'bg': 'Bulgarian', 'ca': 'Catalan', 'cs': 'Czech', 'da'
          'ja': 'Japanese', 'ko': 'Korean', 'lt': 'Lithuanian', 'lv': 'Latvian', 'ms': 'Malay', 'nl': 'Dutch', 'no': 'Norwegian', 'pl': 'Polish', 'pt': 'Portuguese', 'ro': 'Romanian',
          'ru': 'Russian', 'sk': 'Slovak', 'sl': 'Slovenian', 'sr': 'Serbian', 'sv': 'Swedish', 'th': 'Thai', 'tl': 'Filipino', 'tr': 'Turkish', 'uk': 'Ukrainian', 'ur': 'Urdu',
          'vi': 'Vietnamese', 'zh_CN': 'Chinese (simplified)', 'zh_TW': 'Chinese (traditional)'}
+db = "db/twitter_db_temp.db"
 
 class stats():
     def __init__(self):
@@ -77,7 +79,7 @@ class twitter_stream_listener(StreamListener):
         print(status_code)
 
 class twitterMain():
-    def __init__(self, num_tweets, retweet_count):
+    def __init__(self, num_tweets, retweet_count, sql_conn):
         self.auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
         self.auth.set_access_token(access_token, access_token_secret)
 
@@ -85,6 +87,8 @@ class twitterMain():
         self.num_tweets = num_tweets
         self.retweet_count = retweet_count
         self.stats = stats()
+        self.sql_conn = sql_conn
+        self.c = self.sql_conn.cursor()
 
     def get_streaming_data(self, search_keywords):
         listener = twitter_stream_listener(self.num_tweets, self.retweet_count, self.stats, self.get_tweet_html)
@@ -93,23 +97,34 @@ class twitterMain():
 
         lang, top_lang, top_tweets = self.stats.get_stats()
 
-        print(Counter(lang))
-        print(Counter(top_lang))
-        print(top_tweets)
+        # print(Counter(lang))
+        # print(Counter(top_lang))
+        # print(top_tweets)
+
+        self.c.execute("INSERT INTO lang_data VALUES (?,?, DATETIME('now'))",
+                       (str(list(Counter(lang).items())), str(list(Counter(top_lang).items()))))
+
+        for t in top_tweets:
+            self.c.execute("INSERT INTO twit_data VALUES (?, DATETIME('now'))", (t, ))
+
+        self.sql_conn.commit()
 
     def get_trends(self):
-        trends = self.twitter_api.trends_place(1)
+        trends = self.twitter_api.trends_place(23424977)
         trend_data = []
 
         for trend in trends[0]["trends"]:
             trend_tweets = []
             trend_tweets.append(trend['name'])
-            tt = tweepy.Cursor(self.twitter_api.search, q = trend['name']).items(5)
+            tt = tweepy.Cursor(self.twitter_api.search, q = trend['name']).items(3)
 
             for t in tt:
                 trend_tweets.append(self.get_tweet_html(t.id))
 
             trend_data.append(tuple(trend_tweets))
+        print("Inserting trend data into SQL")
+        self.c.executemany("INSERT INTO trend_data VALUES (?,?,?,?, DATETIME('now'))", (trend_data, ))
+        self.sql_conn.commit()
 
     def get_tweet_html(self, id):
         oembed = self.twitter_api.get_oembed(id=id, hide_media=True, hide_thread=True)
@@ -119,9 +134,15 @@ class twitterMain():
 
 
 if __name__=='__main__':
-    num_tweets = 2
+    num_tweets = 20
     retweet_count = 100
 
-    tw = twitterMain(num_tweets, retweet_count)
-    tw.get_streaming_data(search_keywords=['Wimbledon'])
-    tw.get_trends()
+    try:
+        conn = sqlite3.connect(db)
+        tw = twitterMain(num_tweets, retweet_count, conn)
+        tw.get_streaming_data(search_keywords=['Wimbledon'])
+        tw.get_trends()
+    except Exception as e:
+        print(e.__doc__)
+    finally:
+        conn.close()
